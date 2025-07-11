@@ -1,7 +1,7 @@
 import os
 import signal
 import time
-import re  # 导入正则表达式模块
+import re
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from datetime import datetime
 
@@ -83,37 +83,41 @@ def renew_server_task(page):
         
         if page.url != SERVER_URL:
             print(f"当前不在目标页面，正在导航至: {SERVER_URL}")
-            page.goto(SERVER_URL) # 使用默认的加载策略
+            page.goto(SERVER_URL)
 
-        # 【【【 核心修改点 1: 增加等待和调试截图 】】】
         print("等待页面动态内容加载完成...")
-        # 等待网络空闲，表明JS加载可能已完成，最多等待60秒
-        page.wait_for_load_state('networkidle', timeout=60000) 
+        page.wait_for_load_state('networkidle', timeout=60000)
         print("正在截取当前页面状态用于调试...")
         page.screenshot(path="debug_page_state.png")
 
-        # 【【【 核心修改点 2: 使用更灵活的正则表达式选择器 】】】
-        # 使用正则表达式匹配任何包含 'renew' (不区分大小写) 的文本
-        renew_selector = page.get_by_text(re.compile("renew", re.IGNORECASE))
+        # 【【【 核心修改点: 使用截图中的精确文本进行定位 】】】
+        # 根据截图 renew.png，我们要找的文本是带括号的 (Renew)
+        renew_text = "(Renew)"
         
-        print("步骤1: 查找并点击 'Renew' (或类似文本的) 按钮...")
-        renew_selector.wait_for(state='visible', timeout=60000) # 等待时间延长到60秒
-        renew_selector.click()
-        print("...已点击 'Renew' (或类似文本的) 按钮。")
+        print(f"步骤1: 查找并点击文本为 '{renew_text}' 的元素...")
+        renew_element = page.get_by_text(renew_text, exact=True)
+        
+        # 增加额外的健壮性：确保元素可见并且可被点击
+        renew_element.wait_for(state='visible', timeout=30000)
+        renew_element.click()
+        print(f"...已成功点击 '{renew_text}'。")
 
         # 步骤2: 在弹出的对话框中，查找并点击 "Okay" 按钮
         okay_button_text = "Okay"
         print(f"步骤2: 查找并点击 '{okay_button_text}' 按钮...")
-        page.get_by_role("button", name=okay_button_text).wait_for(state='visible', timeout=30000)
-        page.get_by_role("button", name=okay_button_text).click()
+        okay_button = page.get_by_role("button", name=okay_button_text)
+        okay_button.wait_for(state='visible', timeout=30000)
+        okay_button.click()
         print(f"...已点击 '{okay_button_text}'。")
 
         print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 续期任务成功完成！")
+        # 成功后也截个图，确认最后的状态
+        page.screenshot(path="task_success.png")
         return True
 
     except PlaywrightTimeoutError as e:
         print(f"❌ 任务执行超时: 未在规定时间内找到元素。请检查选择器或页面是否已更改。错误: {e}", flush=True)
-        page.screenshot(path="task_element_timeout_error.png") # 失败时依然截图
+        page.screenshot(path="task_element_timeout_error.png")
         return False
     except Exception as e:
         print(f"❌ 任务执行过程中发生未知错误: {e}", flush=True)
