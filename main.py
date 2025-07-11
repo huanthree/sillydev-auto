@@ -75,7 +75,7 @@ def login_with_playwright(page):
         page.screenshot(path="login_process_error.png")
         return False
 
-# --- 核心任务函数 (最终版) ---
+# --- 核心任务函数 (最终修正版) ---
 def renew_server_task(page):
     """执行一次续期服务器的任务。"""
     try:
@@ -88,21 +88,19 @@ def renew_server_task(page):
         print("等待页面动态内容加载完成...")
         page.wait_for_load_state('networkidle', timeout=60000)
         
-        # 【【【 核心修改点 1: 使用您提供的HTML代码创建精准的CSS选择器 】】】
-        # 这个选择器寻找一个包含特定class并且包含文本'(Renew)'的<a>标签
-        renew_selector_css = 'a.text-blue-500.text-sm.cursor-pointer:has-text("(Renew)")'
-        print(f"步骤1: 使用精准CSS选择器 '{renew_selector_css}' 定位元素...")
+        # 【【【 最终核心修改: 根据 f12.png 截图，将选择器中的 'a' 改为 'span' 】】】
+        renew_selector_css = 'span.text-blue-500.text-sm.cursor-pointer'
+        
+        print(f"步骤1: 使用最精准的CSS选择器 '{renew_selector_css}' 定位元素...")
+        # 我们直接定位这个span，因为它就是可点击的元素
         renew_element = page.locator(renew_selector_css)
 
-        # 【【【 核心修改点 2: 在操作前，先滚动到该元素的位置 】】】
         print("步骤2: 滚动页面直到元素可见...")
-        renew_element.scroll_into_view_if_needed()
+        renew_element.scroll_into_view_if_needed(timeout=30000)
         
-        # 增加一个短暂的等待，确保滚动动画完成，页面稳定
         time.sleep(1)
 
         print("步骤3: 点击元素...")
-        # 设置一个超时时间以防万一
         renew_element.click(timeout=15000)
         print("...已成功点击 'Renew' 链接。")
 
