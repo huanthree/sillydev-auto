@@ -1,54 +1,40 @@
-# 工作流名称
 name: Auto Renew Sillydev Server
 
 on:
-  # 允许在 Actions 页面手动触发此工作流，方便测试
   workflow_dispatch:
-
   schedule:
-    # 北京时间每周一上午11点 (UTC 时间每周一凌晨3点) 运行一次
-    # cron 格式: 分 时 日 月 周
-    # '0 3 * * 1' 表示在所有月份、所有号数的每周一的 3 点 0 分运行
     - cron: '0 3 * * 1'
 
 jobs:
   renew-job:
     runs-on: ubuntu-latest
-    
-    # 设置一个合理的任务总超时时间，例如10分钟，防止意外卡死
     timeout-minutes: 10
-
     steps:
-      # 步骤1: 检出你的代码仓库
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 步骤2: 设置 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 步骤3: 安装 Playwright 及其依赖项
       - name: Install Playwright and dependencies
         run: |
           pip install playwright
           python -m playwright install --with-deps chromium
 
-      # 步骤4: 运行续期脚本
       - name: Run Server Renewal Script
-        # 将 GitHub Secrets 注入到环境变量中，供 Python 脚本读取
         env:
           SILLYDEV_COOKIE: ${{ secrets.SILLYDEV_COOKIE }}
           SILLYDEV_EMAIL: ${{ secrets.SILLYDEV_EMAIL }}
           SILLYDEV_PASSWORD: ${{ secrets.SILLYDEV_PASSWORD }}
-        # 使用 -u 参数禁用输出缓冲，确保日志实时显示
         run: python -u main.py
 
-      # 步骤5: 如果脚本失败，则上传截图作为调试证据
-      - name: Upload error artifacts
-        if: failure()
+      # 【【【 核心修改点: 总是上传产物 】】】
+      # 将 if: failure() 改为 if: always() 以便在调试阶段总是能看到截图
+      - name: Upload debug artifacts
+        if: always() # 无论成功或失败，都上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: error-screenshots-and-logs
-          path: "*.png"
+          name: screenshots-and-logs
+          path: "*.png" # 上传所有以 .png 结尾的文件
