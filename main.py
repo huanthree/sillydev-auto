@@ -2,7 +2,7 @@ import os
 import signal
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth.sync_api import stealth_sync
+from playwright_stealth.sync import stealth_sync
 from datetime import datetime
 
 # --- 配置项 (保持不变) ---
@@ -143,7 +143,6 @@ def main():
         page = context.new_page()
         page.set_default_timeout(60000)
         
-        # 【【【 核心修改点: 使用正确的stealth_sync函数 】】】
         stealth_sync(page)
         print("浏览器已启动，并应用了stealth伪装。")
 
