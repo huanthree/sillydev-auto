@@ -2,7 +2,6 @@ import os
 import signal
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth.sync import stealth_sync
 from datetime import datetime
 
 # --- 配置项 (保持不变) ---
@@ -61,7 +60,6 @@ def login_with_playwright(page):
     print("正在尝试使用邮箱和密码登录...")
     try:
         page.goto(LOGIN_URL, wait_until="domcontentloaded")
-        stealth_sync(page)
         email_selector = 'input[name="username"]'
         password_selector = 'input[name="password"]'
         login_button_selector = 'button[type="submit"]:has-text("Login")'
@@ -123,13 +121,15 @@ def renew_server_task(page):
         page.screenshot(path="task_general_error.png")
         return False
 
-# --- 主函数 (最终修正导入路径) ---
+# --- 主函数 (最终版，手动注入脚本反检测) ---
 def main():
     """主执行函数"""
     print("启动服务器自动续期任务（单次运行模式）...", flush=True)
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+        )
 
         sillydev_cookie = os.environ.get('SILLYDEV_COOKIE')
         if sillydev_cookie:
@@ -141,10 +141,11 @@ def main():
             context.add_cookies([session_cookie])
 
         page = context.new_page()
-        page.set_default_timeout(60000)
         
-        stealth_sync(page)
-        print("浏览器已启动，并应用了stealth伪装。")
+        # 【【【 核心修改点: 手动注入脚本来隐藏webdriver标志 】】】
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
+        print("浏览器已启动，并应用了手动伪装脚本。")
 
         try:
             if not login_with_playwright(page):
