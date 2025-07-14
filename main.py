@@ -2,7 +2,7 @@ import os
 import signal
 import time
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
-from playwright_stealth import stealth_sync
+from playwright_stealth import stealth
 from datetime import datetime
 
 # --- 配置项 (保持不变) ---
@@ -64,7 +64,7 @@ def login_with_playwright(page):
     try:
         page.goto(LOGIN_URL, wait_until="domcontentloaded")
         # 应用stealth
-        stealth_sync(page)
+        stealth(page)
         email_selector = 'input[name="username"]'
         password_selector = 'input[name="password"]'
         login_button_selector = 'button[type="submit"]:has-text("Login")'
@@ -126,7 +126,7 @@ def renew_server_task(page):
         page.screenshot(path="task_general_error.png")
         return False
 
-# --- 主函数 (最终版，集成stealth并修正bug) ---
+# --- 主函数 (修正stealth导入) ---
 def main():
     """主执行函数"""
     print("启动服务器自动续期任务（单次运行模式）...", flush=True)
@@ -147,8 +147,8 @@ def main():
         page = context.new_page()
         page.set_default_timeout(60000)
         
-        # 【【【 核心修改点: 应用 stealth 伪装 】】】
-        stealth_sync(page)
+        # 【【【 核心修改点: 使用正确的stealth函数 】】】
+        stealth(page)
         print("浏览器已启动，并应用了stealth伪装。")
 
         try:
@@ -177,13 +177,11 @@ def main():
                  print(f"🔥🔥🔥 任务强制超时（{TASK_TIMEOUT_SECONDS}秒）！🔥🔥🔥", flush=True)
                  print(f"错误信息: {e}", flush=True)
                  page.screenshot(path="task_force_timeout_error.png")
-            # 不再打印冗余的 traceback
         except Exception as e:
             print(f"主程序发生严重错误: {e}", flush=True)
             page.screenshot(path="main_critical_error.png")
         finally:
             print("关闭浏览器，程序结束。", flush=True)
-            # 【【【 核心修改点: 修正笔误 is_closed -> is_connected 】】】
             if browser.is_connected():
                 browser.close()
 
