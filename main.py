@@ -82,36 +82,29 @@ def login_with_playwright(page):
         page.screenshot(path="login_process_error.png")
         return False
 
-# --- 核心任务函数 (保持之前强制点击的版本) ---
+# --- 核心任务函数 (保持不变) ---
 def renew_server_task(page):
     """执行一次续期服务器的任务。"""
     try:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始执行服务器续期任务...")
-
         renew_selector_css = 'span.text-blue-500.text-sm.cursor-pointer'
         renew_element = page.locator(renew_selector_css)
-
         print(f"步骤1: 等待续订元素 '{renew_selector_css}' 附加到DOM...")
         renew_element.wait_for(state='attached', timeout=60000)
         print("...续订元素已在DOM中找到。")
-
         time.sleep(2)
-
         print("步骤2: 强制点击元素（忽略可见性检查）...")
         renew_element.click(force=True, timeout=15000)
         print("...已成功强制点击 'Renew' 链接。")
-
         okay_button_text = "Okay"
         print(f"步骤3: 查找并点击 '{okay_button_text}' 按钮...")
         okay_button = page.get_by_role("button", name=okay_button_text)
         okay_button.wait_for(state='visible', timeout=30000)
         okay_button.click()
         print(f"...已点击 '{okay_button_text}'。")
-
         print(f"✅ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - 续期任务成功完成！")
         page.screenshot(path="task_success.png")
         return True
-
     except PlaywrightTimeoutError as e:
         print(f"❌ 任务执行超时。错误: {e}", flush=True)
         page.screenshot(path="task_element_timeout_error.png")
@@ -121,31 +114,44 @@ def renew_server_task(page):
         page.screenshot(path="task_general_error.png")
         return False
 
-# --- 主函数 (最终版，手动注入脚本反检测) ---
+# --- 主函数 (最终版，集成代理功能) ---
 def main():
     """主执行函数"""
     print("启动服务器自动续期任务（单次运行模式）...", flush=True)
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        # 【【【 核心修改点: 读取代理配置 】】】
+        proxy_host = os.environ.get('PROXY_HOST')
+        proxy_port = os.environ.get('PROXY_PORT')
+        proxy_username = os.environ.get('PROXY_USERNAME')
+        proxy_password = os.environ.get('PROXY_PASSWORD')
+
+        proxy_settings = None
+        if proxy_host and proxy_port:
+            print(f"检测到代理配置，将通过服务器 {proxy_host}:{proxy_port} 运行。")
+            proxy_settings = {
+                "server": f"http://{proxy_host}:{proxy_port}",
+            }
+            if proxy_username and proxy_password:
+                proxy_settings["username"] = proxy_username
+                proxy_settings["password"] = proxy_password
+        
+        # 将代理设置传给浏览器启动项
+        browser = p.chromium.launch(
+            headless=True,
+            proxy=proxy_settings # 如果未设置代理，这里会是None，Playwright会忽略它
+        )
+
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
         )
 
         sillydev_cookie = os.environ.get('SILLYDEV_COOKIE')
         if sillydev_cookie:
-            session_cookie = {
-                'name': COOKIE_NAME, 'value': sillydev_cookie, 'domain': '.panel.sillydev.co.uk',
-                'path': '/', 'expires': int(time.time()) + 3600 * 24 * 365, 'httpOnly': True,
-                'secure': True, 'sameSite': 'Lax'
-            }
-            context.add_cookies([session_cookie])
+            context.add_cookies([{'name': COOKIE_NAME, 'value': sillydev_cookie, 'domain': '.panel.sillydev.co.uk','path': '/', 'expires': int(time.time()) + 3600 * 24 * 365, 'httpOnly': True, 'secure': True, 'sameSite': 'Lax'}])
 
         page = context.new_page()
-        
-        # 【【【 核心修改点: 手动注入脚本来隐藏webdriver标志 】】】
         page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
-        
-        print("浏览器已启动，并应用了手动伪装脚本。")
+        print("浏览器已启动。")
 
         try:
             if not login_with_playwright(page):
@@ -155,9 +161,7 @@ def main():
             print("\n----------------------------------------------------")
             if os.name != 'nt':
                 signal.alarm(TASK_TIMEOUT_SECONDS)
-
             success = renew_server_task(page)
-
             if os.name != 'nt':
                 signal.alarm(0)
 
@@ -166,11 +170,9 @@ def main():
             else:
                 print("本轮续期任务失败。", flush=True)
                 exit(1)
-
         except (TaskTimeoutError, SystemExit) as e:
             if isinstance(e, TaskTimeoutError):
                  print(f"🔥🔥🔥 任务强制超时（{TASK_TIMEOUT_SECONDS}秒）！🔥🔥🔥", flush=True)
-                 print(f"错误信息: {e}", flush=True)
                  page.screenshot(path="task_force_timeout_error.png")
         except Exception as e:
             print(f"主程序发生严重错误: {e}", flush=True)
