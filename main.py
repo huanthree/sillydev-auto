@@ -75,7 +75,7 @@ def login_with_playwright(page):
         page.screenshot(path="login_process_error.png")
         return False
 
-# --- 核心任务函数 (最终修正版) ---
+# --- 核心任务函数 (再次修正版) ---
 def renew_server_task(page):
     """执行一次续期服务器的任务。"""
     try:
@@ -85,31 +85,29 @@ def renew_server_task(page):
             print(f"当前不在目标页面，正在导航至: {SERVER_URL}")
             page.goto(SERVER_URL, wait_until="domcontentloaded")
 
-        # 【【【 核心修改点 】】】
-        # 1. 定义选择器和目标元素
+        # 定义选择器和目标元素
         renew_selector_css = 'span.text-blue-500.text-sm.cursor-pointer'
         renew_element = page.locator(renew_selector_css)
         
-        # 2. 直接等待这个特定的元素变得可见，并设置一个足够长的超时时间（例如60秒）
-        #    这比 page.wait_for_load_state('networkidle') 更可靠。
-        print(f"步骤1: 等待续订元素 '{renew_selector_css}' 在页面上出现并可见...")
-        renew_element.wait_for(state='visible', timeout=60000)
-        print("...续订元素已找到且可见。")
+        # 【【【 核心修改点 1 】】】
+        # 等待策略从 'visible' 改为 'attached'。
+        # 'attached' 只确保元素存在于DOM中，不关心它是否被遮挡。
+        print(f"步骤1: 等待续订元素 '{renew_selector_css}' 附加到DOM...")
+        renew_element.wait_for(state='attached', timeout=60000)
+        print("...续订元素已在DOM中找到。")
         
-        # 为了保险起见，滚动一下确保它在视口内，尽管 'visible' 状态通常已包含此意
-        print("步骤2: 滚动页面直到元素进入视图...")
-        renew_element.scroll_into_view_if_needed(timeout=30000)
-        
-        # 在点击前短暂等待，有时可以避免意外的交互问题
-        time.sleep(1)
+        # 短暂等待，以防万一
+        time.sleep(2)
 
-        print("步骤3: 点击元素...")
-        renew_element.click(timeout=15000)
-        print("...已成功点击 'Renew' 链接。")
+        # 【【【 核心修改点 2 】】】
+        # 使用 force=True 参数进行点击，这将忽略Playwright的可见性检查。
+        print("步骤2: 强制点击元素（忽略可见性检查）...")
+        renew_element.click(force=True, timeout=15000)
+        print("...已成功强制点击 'Renew' 链接。")
 
-        # 步骤4: 在弹出的对话框中，查找并点击 "Okay" 按钮
+        # 步骤3: 在弹出的对话框中，查找并点击 "Okay" 按钮
         okay_button_text = "Okay"
-        print(f"步骤4: 查找并点击 '{okay_button_text}' 按钮...")
+        print(f"步骤3: 查找并点击 '{okay_button_text}' 按钮...")
         okay_button = page.get_by_role("button", name=okay_button_text)
         okay_button.wait_for(state='visible', timeout=30000)
         okay_button.click()
@@ -120,12 +118,8 @@ def renew_server_task(page):
         return True
 
     except PlaywrightTimeoutError as e:
-        # 提供更详细的错误日志
         error_message = str(e)
-        if "renew_element.wait_for" in error_message:
-            print(f"❌ 任务执行超时: 等待续订按钮时超时。这很可能意味着续订按钮未在指定时间内出现在页面上。请检查服务器状态或页面结构。错误: {e}", flush=True)
-        else:
-            print(f"❌ 任务执行超时: 未在规定时间内找到或操作元素。请检查选择器或页面是否已更改。错误: {e}", flush=True)
+        print(f"❌ 任务执行超时。错误: {e}", flush=True)
         page.screenshot(path="task_element_timeout_error.png")
         return False
     except Exception as e:
