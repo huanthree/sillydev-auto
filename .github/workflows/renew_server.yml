@@ -18,9 +18,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      # 【【【 核心修改点: 安装 playwright-stealth 库 】】】
       - name: Install Playwright and dependencies
         run: |
-          pip install playwright
+          pip install playwright playwright-stealth
           python -m playwright install --with-deps chromium
 
       - name: Run Server Renewal Script
@@ -30,11 +31,9 @@ jobs:
           SILLYDEV_PASSWORD: ${{ secrets.SILLYDEV_PASSWORD }}
         run: python -u main.py
 
-      # 【【【 核心修改点: 总是上传产物 】】】
-      # 将 if: failure() 改为 if: always() 以便在调试阶段总是能看到截图
       - name: Upload debug artifacts
-        if: always() # 无论成功或失败，都上传产物
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: screenshots-and-logs
-          path: "*.png" # 上传所有以 .png 结尾的文件
+          path: "*.png"
