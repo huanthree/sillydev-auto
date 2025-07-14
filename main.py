@@ -83,21 +83,24 @@ def renew_server_task(page):
         
         if page.url != SERVER_URL:
             print(f"当前不在目标页面，正在导航至: {SERVER_URL}")
-            page.goto(SERVER_URL)
+            page.goto(SERVER_URL, wait_until="domcontentloaded")
 
-        print("等待页面动态内容加载完成...")
-        page.wait_for_load_state('networkidle', timeout=60000)
-        
-        # 【【【 最终核心修改: 根据 f12.png 截图，将选择器中的 'a' 改为 'span' 】】】
+        # 【【【 核心修改点 】】】
+        # 1. 定义选择器和目标元素
         renew_selector_css = 'span.text-blue-500.text-sm.cursor-pointer'
-        
-        print(f"步骤1: 使用最精准的CSS选择器 '{renew_selector_css}' 定位元素...")
-        # 我们直接定位这个span，因为它就是可点击的元素
         renew_element = page.locator(renew_selector_css)
-
-        print("步骤2: 滚动页面直到元素可见...")
+        
+        # 2. 直接等待这个特定的元素变得可见，并设置一个足够长的超时时间（例如60秒）
+        #    这比 page.wait_for_load_state('networkidle') 更可靠。
+        print(f"步骤1: 等待续订元素 '{renew_selector_css}' 在页面上出现并可见...")
+        renew_element.wait_for(state='visible', timeout=60000)
+        print("...续订元素已找到且可见。")
+        
+        # 为了保险起见，滚动一下确保它在视口内，尽管 'visible' 状态通常已包含此意
+        print("步骤2: 滚动页面直到元素进入视图...")
         renew_element.scroll_into_view_if_needed(timeout=30000)
         
+        # 在点击前短暂等待，有时可以避免意外的交互问题
         time.sleep(1)
 
         print("步骤3: 点击元素...")
@@ -117,7 +120,12 @@ def renew_server_task(page):
         return True
 
     except PlaywrightTimeoutError as e:
-        print(f"❌ 任务执行超时: 未在规定时间内找到或操作元素。请检查选择器或页面是否已更改。错误: {e}", flush=True)
+        # 提供更详细的错误日志
+        error_message = str(e)
+        if "renew_element.wait_for" in error_message:
+            print(f"❌ 任务执行超时: 等待续订按钮时超时。这很可能意味着续订按钮未在指定时间内出现在页面上。请检查服务器状态或页面结构。错误: {e}", flush=True)
+        else:
+            print(f"❌ 任务执行超时: 未在规定时间内找到或操作元素。请检查选择器或页面是否已更改。错误: {e}", flush=True)
         page.screenshot(path="task_element_timeout_error.png")
         return False
     except Exception as e:
