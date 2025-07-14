@@ -1,8 +1,8 @@
 import os
 import signal
 import time
-import re
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright_stealth import stealth_sync
 from datetime import datetime
 
 # --- 配置项 (保持不变) ---
@@ -30,18 +30,22 @@ def login_with_playwright(page):
 
     if sillydev_cookie:
         print("检测到 SILLYDEV_COOKIE，尝试使用 Cookie 登录...")
-        # 注意：这里的add_cookies是在创建page之后，由main函数中的context统一处理
+        # Cookie已经在main函数中设置好，这里直接导航
         print(f"已设置 Cookie。正在访问目标服务器页面: {SERVER_URL}")
-        # 捕获可能的导航错误
         try:
-            response = page.goto(SERVER_URL, wait_until="domcontentloaded")
+            response = page.goto(SERVER_URL, wait_until="domcontentloaded", timeout=60000)
             # 检查是否被拦截
-            if response.status != 200 or "you have been blocked" in page.content().lower():
-                print("❌ 访问被阻止或页面状态异常。可能是反机器人系统生效。")
+            content = page.content().lower()
+            if response.status != 200 or "you have been blocked" in content or "access denied" in content:
+                print("❌ 访问被阻止或页面状态异常。反机器人系统仍然生效。")
                 page.screenshot(path="blocked_page_error.png")
-                return False # 明确返回失败
+                return False
+        except PlaywrightTimeoutError:
+            print(f"❌ 导航至服务器页面时超时。")
+            page.screenshot(path="navigation_timeout_error.png")
+            return False
         except Exception as e:
-            print(f"❌ 导航至服务器页面时发生错误: {e}")
+            print(f"❌ 导航至服务器页面时发生未知错误: {e}")
             page.screenshot(path="navigation_error.png")
             return False
 
@@ -49,7 +53,7 @@ def login_with_playwright(page):
             print("Cookie 登录失败或会话已过期，将回退到邮箱密码登录。")
             page.context.clear_cookies()
         else:
-            print("✅ Cookie 登录成功！")
+            print("✅ 成功访问服务器页面！")
             return True
 
     if not (sillydev_email and sillydev_password):
@@ -59,6 +63,8 @@ def login_with_playwright(page):
     print("正在尝试使用邮箱和密码登录...")
     try:
         page.goto(LOGIN_URL, wait_until="domcontentloaded")
+        # 应用stealth
+        stealth_sync(page)
         email_selector = 'input[name="username"]'
         password_selector = 'input[name="password"]'
         login_button_selector = 'button[type="submit"]:has-text("Login")'
@@ -68,12 +74,12 @@ def login_with_playwright(page):
         page.fill(password_selector, sillydev_password)
         with page.expect_navigation(wait_until="domcontentloaded"):
             page.click(login_button_selector)
-        
+
         if "auth/login" in page.url:
             print("❌ 邮箱密码登录失败，请检查凭据是否正确。", flush=True)
             page.screenshot(path="login_fail_error.png")
             return False
-        
+
         print("✅ 邮箱密码登录成功！")
         return True
     except Exception as e:
@@ -86,19 +92,14 @@ def renew_server_task(page):
     """执行一次续期服务器的任务。"""
     try:
         print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 开始执行服务器续期任务...")
-        
-        # 再次检查URL，以防登录后跳转有问题
-        if SERVER_URL not in page.url:
-            print(f"当前不在目标页面 ({page.url})，正在重新导航至: {SERVER_URL}")
-            page.goto(SERVER_URL, wait_until="domcontentloaded")
 
         renew_selector_css = 'span.text-blue-500.text-sm.cursor-pointer'
         renew_element = page.locator(renew_selector_css)
-        
+
         print(f"步骤1: 等待续订元素 '{renew_selector_css}' 附加到DOM...")
         renew_element.wait_for(state='attached', timeout=60000)
         print("...续订元素已在DOM中找到。")
-        
+
         time.sleep(2)
 
         print("步骤2: 强制点击元素（忽略可见性检查）...")
@@ -125,23 +126,15 @@ def renew_server_task(page):
         page.screenshot(path="task_general_error.png")
         return False
 
-# --- 主函数 (核心修改处) ---
+# --- 主函数 (最终版，集成stealth并修正bug) ---
 def main():
+    """主执行函数"""
     print("启动服务器自动续期任务（单次运行模式）...", flush=True)
     with sync_playwright() as p:
-        # 【【【 核心修改点 1: 添加启动参数以反检测 】】】
-        browser = p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled"]
-        )
-        
-        # 【【【 核心修改点 2: 创建带有自定义User-Agent的上下文 】】】
-        # 使用一个非常普遍的User-Agent来伪装成普通浏览器
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-        )
-        
-        # 将cookie添加到上下文中，这样所有该上下文的页面都会共享
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context()
+
+        # 将cookie添加到上下文中
         sillydev_cookie = os.environ.get('SILLYDEV_COOKIE')
         if sillydev_cookie:
             session_cookie = {
@@ -151,23 +144,24 @@ def main():
             }
             context.add_cookies([session_cookie])
 
-        page = context.new_page() # 从配置好的上下文中创建新页面
+        page = context.new_page()
         page.set_default_timeout(60000)
-        print("浏览器已作为伪装模式启动。", flush=True)
+        
+        # 【【【 核心修改点: 应用 stealth 伪装 】】】
+        stealth_sync(page)
+        print("浏览器已启动，并应用了stealth伪装。")
 
         try:
             if not login_with_playwright(page):
                 print("登录失败或被拦截，程序终止。", flush=True)
-                # 之前这里是 exit(1)，在 finally 块之前会中断
-                browser.close() # 确保浏览器关闭
-                exit(1)
-            
+                exit(1) # 主动退出
+
             print("\n----------------------------------------------------")
             if os.name != 'nt':
                 signal.alarm(TASK_TIMEOUT_SECONDS)
-            
+
             success = renew_server_task(page)
-            
+
             if os.name != 'nt':
                 signal.alarm(0)
 
@@ -175,23 +169,24 @@ def main():
                 print("本轮续期任务成功完成。", flush=True)
             else:
                 print("本轮续期任务失败。", flush=True)
-                exit(1)
+                exit(1) # 主动退出
 
-        except TaskTimeoutError as e:
-            print(f"🔥🔥🔥 任务强制超时（{TASK_TIMEOUT_SECONDS}秒）！🔥🔥🔥", flush=True)
-            print(f"错误信息: {e}", flush=True)
-            page.screenshot(path="task_force_timeout_error.png")
-            exit(1)
+        except (TaskTimeoutError, SystemExit) as e:
+             # 捕获我们自己触发的退出和超时
+            if isinstance(e, TaskTimeoutError):
+                 print(f"🔥🔥🔥 任务强制超时（{TASK_TIMEOUT_SECONDS}秒）！🔥🔥🔥", flush=True)
+                 print(f"错误信息: {e}", flush=True)
+                 page.screenshot(path="task_force_timeout_error.png")
+            # 不再打印冗余的 traceback
         except Exception as e:
             print(f"主程序发生严重错误: {e}", flush=True)
             page.screenshot(path="main_critical_error.png")
-            exit(1)
         finally:
             print("关闭浏览器，程序结束。", flush=True)
-            if not browser.is_closed():
+            # 【【【 核心修改点: 修正笔误 is_closed -> is_connected 】】】
+            if browser.is_connected():
                 browser.close()
 
 if __name__ == "__main__":
     main()
     print("脚本执行完毕。")
-    exit(0)
