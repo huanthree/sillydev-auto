@@ -18,10 +18,10 @@ jobs:
         with:
           python-version: '3.11'
 
-      # 【【【 核心修改点: 安装 playwright-stealth 库 】】】
+      # 【【【 核心修改点: 移除 playwright-stealth 】】】
       - name: Install Playwright and dependencies
         run: |
-          pip install playwright playwright-stealth
+          pip install playwright
           python -m playwright install --with-deps chromium
 
       - name: Run Server Renewal Script
